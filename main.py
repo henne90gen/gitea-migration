@@ -41,7 +41,7 @@ def main():
     gitea_api_token = "<Gitea API Token>"
     gitea_user = "<Gitea User>"
     gitea_url = "<Gitea Url>"
-    github_api_token = "<GitHub API Token"
+    github_api_token = "<GitHub API Token>"
     github_user = "<GitHub User>"
 
     url = f"https://api.github.com/search/repositories?q=user:{github_user}%20fork:true"
@@ -58,6 +58,8 @@ def main():
         repo_name = repo["name"]
         migrate_repo(repo_name, gitea_url, gitea_api_token,
                      gitea_user, github_api_token, github_user)
+
+    print(f"Migrated {len(repos)} repositories")
 
 
 if __name__ == "__main__":
