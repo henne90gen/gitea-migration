@@ -1,12 +1,19 @@
 import requests
 import os
+from dataclasses import dataclass
 
 
-def migrate_repo(repo_name: str, gitea_url: str, gitea_api_token: str, gitea_user: str, github_api_token: str, github_user: str):
-    clone_addr = f"https://github.com/{github_user}/{repo_name}.git"
+@dataclass
+class UserData:
+    name: str
+    api_token: str
 
-    result = requests.post(f"{gitea_url}/api/v1/repos/migrate", headers={"Authorization": f"token {gitea_api_token}"}, data={
-        "auth_token": github_api_token,
+
+def migrate_repo(gitea_url: str, gitea_user: UserData, user: UserData, service: str, repo_name: str):
+    clone_addr = f"https://{service}.com/{user.name}/{repo_name}.git"
+
+    result = requests.post(f"{gitea_url}/api/v1/repos/migrate", headers={"Authorization": f"token {gitea_user.api_token}"}, data={
+        "auth_token": user.api_token,
         "clone_addr": clone_addr,
         "description": "",
         "issues": False,
@@ -19,8 +26,8 @@ def migrate_repo(repo_name: str, gitea_url: str, gitea_api_token: str, gitea_use
         "pull_requests": False,
         "releases": False,
         "repo_name": repo_name,
-        "repo_owner": gitea_user,
-        "service": "github",
+        "repo_owner": gitea_user.name,
+        "service": service,
         "wiki": False
     })
 
@@ -37,16 +44,12 @@ def migrate_repo(repo_name: str, gitea_url: str, gitea_api_token: str, gitea_use
     print(f"Migrated {repo_name}")
 
 
-def main():
-    gitea_api_token = "<Gitea API Token>"
-    gitea_user = "<Gitea User>"
-    gitea_url = "<Gitea Url>"
-    github_api_token = "<GitHub API Token>"
-    github_user = "<GitHub User>"
-
-    url = f"https://api.github.com/search/repositories?q=user:{github_user}%20fork:true"
+def migrate_github(gitea_url: str, gitea_user: UserData, github_user: UserData):
+    print()
+    print("GitHub:")
+    url = f"https://api.github.com/search/repositories?q=user:{github_user.name}%20fork:true"
     result = requests.get(url, params={"per_page": 100}, headers={
-                          "Authorization": f"token {github_api_token}", "Accept": "application/vnd.github.v3+json"})
+                          "Authorization": f"token {github_user.api_token}", "Accept": "application/vnd.github.v3+json"})
 
     json = result.json()
     if result.status_code != 200:
@@ -56,10 +59,46 @@ def main():
     repos = json["items"]
     for repo in repos:
         repo_name = repo["name"]
-        migrate_repo(repo_name, gitea_url, gitea_api_token,
-                     gitea_user, github_api_token, github_user)
+        migrate_repo(gitea_url, gitea_user, github_user, "github", repo_name)
 
-    print(f"Migrated {len(repos)} repositories")
+    return len(repos)
+
+
+def migrate_gitlab(gitea_url: str, gitea_user: UserData, gitlab_user: UserData):
+    print()
+    print("GitLab:")
+    result = requests.get("https://gitlab.com/api/v4/projects", params={"simple": True, "owned": True},
+                          headers={"Authorization": f"Bearer {gitlab_user.api_token}"})
+    if result.status_code != 200:
+        print("Failed to fetch repository list for GitLab")
+        return
+
+    count = 0
+    repos = result.json()
+    for repo in repos:
+        if repo["namespace"]["path"] != gitlab_user.name:
+            print(f"Skipping {repo['name_with_namespace']}")
+            continue
+        repo_name = repo["path"]
+        migrate_repo(gitea_url, gitea_user, gitlab_user, "gitlab", repo_name)
+        count += 1
+    return count
+
+
+def main():
+    gitea_url = "<Gitea Url>"
+    gitea_user = UserData(
+        "<Gitea User Name>", "<Gitea API Token>")
+    github_user = UserData(
+        "<GitHub User Name>", "<GitHub API Token>")
+    gitlab_user = UserData("<GitLab User Name>", "<GitLab API Token>")
+
+    count = 0
+    count += migrate_github(gitea_url, gitea_user, github_user)
+    count += migrate_gitlab(gitea_url, gitea_user, gitlab_user)
+
+    print()
+    print(f"Migrated {count} repositories")
 
 
 if __name__ == "__main__":
