@@ -1,12 +1,22 @@
 import requests
 import os
+import json
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
 class UserData:
     name: str
     api_token: str
+
+
+@dataclass
+class Config:
+    gitea_url: str
+    gitea_user: UserData
+    github_user: UserData
+    gitlab_user: UserData
 
 
 def migrate_repo(gitea_url: str, gitea_user: UserData, user: UserData, service: str, repo_name: str):
@@ -38,7 +48,7 @@ def migrate_repo(gitea_url: str, gitea_user: UserData, user: UserData, service: 
     if result.status_code != 200 and result.status_code != 201:
         print(f"Failed to mirror repository {repo_name}")
         print(result.status_code)
-        print(result.json())
+        print(result.content.decode("utf-8"))
         exit(1)
 
     print(f"Migrated {repo_name}")
@@ -85,13 +95,61 @@ def migrate_gitlab(gitea_url: str, gitea_user: UserData, gitlab_user: UserData):
     return count
 
 
+def load_config() -> Optional[Config]:
+    with open("config.json") as f:
+        json_dict = json.load(f)
+
+    if "gitea_url" not in json_dict:
+        print("Missing 'gitea_url' in config.json")
+        return None
+
+    def load_user_data(user_field_name: str) -> Optional[UserData]:
+        if user_field_name not in json_dict:
+            print(f"Missing '{user_field_name}' in config.json")
+            return None
+
+        if "name" not in json_dict[user_field_name]:
+            print(f"Missing '{user_field_name}.name' in config.json")
+            return None
+
+        if "api_token" not in json_dict[user_field_name]:
+            print(f"Missing '{user_field_name}.api_token' in config.json")
+            return None
+
+        return UserData(
+            name=json_dict[user_field_name]["name"],
+            api_token=json_dict[user_field_name]["api_token"]
+        )
+
+    gitea_user = load_user_data("gitea_user")
+    if gitea_user is None:
+        return None
+
+    github_user = load_user_data("github_user")
+    if github_user is None:
+        return None
+
+    gitlab_user = load_user_data("gitlab_user")
+    if gitlab_user is None:
+        return None
+
+    return Config(
+        gitea_url=json_dict["gitea_url"],
+        gitea_user=gitea_user,
+        github_user=github_user,
+        gitlab_user=gitlab_user
+    )
+
+
 def main():
-    gitea_url = "<Gitea Url>"
-    gitea_user = UserData(
-        "<Gitea User Name>", "<Gitea API Token>")
-    github_user = UserData(
-        "<GitHub User Name>", "<GitHub API Token>")
-    gitlab_user = UserData("<GitLab User Name>", "<GitLab API Token>")
+    config = load_config()
+    if config is None:
+        exit(1)
+
+    gitea_url = config.gitea_url
+    gitea_user = config.gitea_user
+    github_user = config.github_user
+    gitlab_user = config.gitlab_user
 
     count = 0
     count += migrate_github(gitea_url, gitea_user, github_user)
