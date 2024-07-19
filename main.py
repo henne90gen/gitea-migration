@@ -1,5 +1,4 @@
 import requests
-import os
 import json
 from dataclasses import dataclass
 from typing import Optional
@@ -9,6 +8,7 @@ from typing import Optional
 class UserData:
     name: str
     api_token: str
+    force_migration: bool = False
 
 
 @dataclass
@@ -20,9 +20,23 @@ class Config:
 
 
 def migrate_repo(gitea_url: str, gitea_user: UserData, user: UserData, service: str, repo_name: str):
-    clone_addr = f"https://{service}.com/{user.name}/{repo_name}.git"
+    if repo_name in ["lecture_scripts"]:
+        # NOTE: these repositories take too long to sync
+        print("Skipping", repo_name)
+        return
+    
+    headers = {"Authorization": f"token {gitea_user.api_token}"}
+    if user.force_migration:
+        result = requests.delete(f"{gitea_url}/api/v1/repos/{gitea_user.name}/{repo_name}", headers=headers)
 
-    result = requests.post(f"{gitea_url}/api/v1/repos/migrate", headers={"Authorization": f"token {gitea_user.api_token}"}, data={
+        if result.status_code != 204 and result.status_code != 404:
+            print(f"Failed to delete repository {repo_name} before migrating it again.")
+            print(result.status_code)
+            print(result.content.decode("utf-8"))
+            exit(1)
+
+    clone_addr = f"https://{service}.com/{user.name}/{repo_name}.git"
+    result = requests.post(f"{gitea_url}/api/v1/repos/migrate", headers=headers, data={
         "auth_token": user.api_token,
         "clone_addr": clone_addr,
         "description": "",
@@ -116,9 +130,14 @@ def load_config() -> Optional[Config]:
             print(f"Missing '{user_field_name}.api_token' in config.json")
             return None
 
+        force_migration = False
+        if "force_migration" in json_dict[user_field_name]:
+            force_migration = json_dict[user_field_name]["force_migration"]
+
         return UserData(
             name=json_dict[user_field_name]["name"],
-            api_token=json_dict[user_field_name]["api_token"]
+            api_token=json_dict[user_field_name]["api_token"],
+            force_migration=force_migration
         )
 
     gitea_user = load_user_data("gitea_user")
